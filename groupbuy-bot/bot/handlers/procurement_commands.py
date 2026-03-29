@@ -383,15 +383,19 @@ async def process_city(message: Message, state: FSMContext):
 
     data = await state.get_data()
 
-    # Create the procurement
+    # Create the procurement (deadline 90 days from now)
+    from datetime import datetime, timezone, timedelta
+    deadline = (datetime.now(timezone.utc) + timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     procurement_data = {
         "title": data.get("title"),
         "description": data.get("description"),
         "target_amount": data.get("target_amount"),
         "city": city,
-        "organizer": data.get("organizer_id"),
-        "deadline": "2025-12-31T23:59:59Z",  # Default deadline
-        "unit": "units"
+        "organizer_id": data.get("organizer_id"),
+        "deadline": deadline,
+        "unit": "units",
+        "status": "active"
     }
 
     result = await api_client.create_procurement(procurement_data)
@@ -418,12 +422,12 @@ async def process_city(message: Message, state: FSMContext):
 def get_status_emoji(status: str) -> str:
     """Get emoji for procurement status"""
     emoji_map = {
-        "draft": "",
-        "active": "",
-        "stopped": "",
-        "payment": "",
-        "completed": "",
-        "cancelled": ""
+        "draft": "\U0001F4DD",       # 📝
+        "active": "\u2705",           # ✅
+        "stopped": "\u23F8\uFE0F",    # ⏸️
+        "payment": "\U0001F4B3",      # 💳
+        "completed": "\u2714\uFE0F",  # ✔️
+        "cancelled": "\u274C",        # ❌
     }
     return emoji_map.get(status, "")
 

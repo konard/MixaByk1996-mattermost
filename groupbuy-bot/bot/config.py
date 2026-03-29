@@ -27,6 +27,7 @@ class BotConfig:
     # Bot settings
     polling_interval: float = 0.5
     max_workers: int = 10
+    http_port: int = int(os.getenv("BOT_HTTP_PORT", "8001"))
 
     # Logging
     log_level: str = os.getenv("LOG_LEVEL", "INFO")

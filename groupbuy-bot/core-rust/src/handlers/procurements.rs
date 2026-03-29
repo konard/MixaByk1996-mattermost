@@ -221,11 +221,140 @@ pub async fn join_procurement(
 }
 
 /// POST /api/procurements/{id}/leave/
-pub async fn leave_procurement(_pool: web::Data<PgPool>, path: web::Path<i32>) -> HttpResponse {
+pub async fn leave_procurement(
+    pool: web::Data<PgPool>,
+    path: web::Path<i32>,
+    body: web::Json<serde_json::Value>,
+) -> HttpResponse {
     let proc_id = path.into_inner();
+    let user_id = body.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0);
 
-    // For now, mark as inactive (needs user_id from auth in production)
-    HttpResponse::Ok().json(serde_json::json!({"message": "Left procurement", "procurement_id": proc_id}))
+    if user_id == 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "user_id is required"}));
+    }
+
+    match sqlx::query(
+        "UPDATE participants SET is_active = false, updated_at = NOW() WHERE procurement_id = $1 AND user_id = $2",
+    )
+    .bind(proc_id)
+    .bind(user_id as i32)
+    .execute(pool.get_ref())
+    .await
+    {
+        Ok(result) => {
+            if result.rows_affected() > 0 {
+                // Update procurement current amount
+                let _ = sqlx::query(
+                    "UPDATE procurements SET current_amount = (SELECT COALESCE(SUM(amount), 0) FROM participants WHERE procurement_id = $1 AND is_active = true), updated_at = NOW() WHERE id = $1",
+                )
+                .bind(proc_id)
+                .execute(pool.get_ref())
+                .await;
+
+                HttpResponse::Ok().json(serde_json::json!({"message": "Left procurement", "procurement_id": proc_id}))
+            } else {
+                HttpResponse::NotFound().json(serde_json::json!({"error": "Not a participant of this procurement"}))
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to leave procurement: {}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": "Database error"}))
+        }
+    }
+}
+
+/// GET /api/procurements/user/{user_id}/
+pub async fn get_user_procurements(
+    pool: web::Data<PgPool>,
+    path: web::Path<i32>,
+) -> HttpResponse {
+    let user_id = path.into_inner();
+
+    let organized = sqlx::query_as::<_, Procurement>(
+        "SELECT * FROM procurements WHERE organizer_id = $1 ORDER BY created_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(pool.get_ref())
+    .await;
+
+    let participating_ids: Vec<i32> = sqlx::query_scalar(
+        "SELECT procurement_id FROM participants WHERE user_id = $1 AND is_active = true",
+    )
+    .bind(user_id)
+    .fetch_all(pool.get_ref())
+    .await
+    .unwrap_or_default();
+
+    let participating = if participating_ids.is_empty() {
+        Ok(vec![])
+    } else {
+        sqlx::query_as::<_, Procurement>(
+            "SELECT * FROM procurements WHERE id = ANY($1) ORDER BY created_at DESC",
+        )
+        .bind(&participating_ids)
+        .fetch_all(pool.get_ref())
+        .await
+    };
+
+    match (organized, participating) {
+        (Ok(org), Ok(part)) => {
+            let org_responses: Vec<_> = org
+                .into_iter()
+                .map(|p| p.to_response(0))
+                .collect();
+            let part_responses: Vec<_> = part
+                .into_iter()
+                .map(|p| p.to_response(0))
+                .collect();
+            HttpResponse::Ok().json(serde_json::json!({
+                "organized": org_responses,
+                "participating": part_responses
+            }))
+        }
+        (Err(e), _) | (_, Err(e)) => {
+            tracing::error!("Failed to fetch user procurements: {}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": "Database error"}))
+        }
+    }
+}
+
+/// POST /api/procurements/{id}/check_access/
+pub async fn check_procurement_access(
+    pool: web::Data<PgPool>,
+    path: web::Path<i32>,
+    body: web::Json<serde_json::Value>,
+) -> HttpResponse {
+    let proc_id = path.into_inner();
+    let user_id = body.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0);
+
+    if user_id == 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "user_id is required"}));
+    }
+
+    // Check if user is organizer or active participant
+    let is_organizer: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM procurements WHERE id = $1 AND organizer_id = $2)",
+    )
+    .bind(proc_id)
+    .bind(user_id as i32)
+    .fetch_one(pool.get_ref())
+    .await
+    .unwrap_or(false);
+
+    let is_participant: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM participants WHERE procurement_id = $1 AND user_id = $2 AND is_active = true)",
+    )
+    .bind(proc_id)
+    .bind(user_id as i32)
+    .fetch_one(pool.get_ref())
+    .await
+    .unwrap_or(false);
+
+    if is_organizer || is_participant {
+        HttpResponse::Ok().json(serde_json::json!({"access": true}))
+    } else {
+        HttpResponse::Forbidden().json(serde_json::json!({"access": false}))
+    }
 }
 
 /// GET /api/procurements/categories/

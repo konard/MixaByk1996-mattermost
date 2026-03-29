@@ -2,7 +2,6 @@
 Registration dialog for new users
 """
 import re
-from enum import Enum
 from typing import Dict, Any, Optional
 
 from aiogram import Router, F
@@ -26,8 +25,8 @@ router = Router()
 
 
 def validate_name(name: str) -> bool:
-    """Validate name format"""
-    return bool(re.match(r'^[\u0400-\u04FF\s]{2,50}$|^[a-zA-Z\s]{2,50}$', name))
+    """Validate name format (allows Russian, Latin, spaces, hyphens)"""
+    return bool(re.match(r'^[\u0400-\u04FF a-zA-Z\-]{2,50}$', name.strip()))
 
 
 def validate_phone(phone: str) -> bool:

@@ -19,7 +19,7 @@ services:
     networks:
       - groupbuy-network
 
-  # Bot service (command handlers)
+  # Bot service (command handlers + HTTP endpoint for adapters)
   bot:
     build: ./bot
     command: python main.py
@@ -28,35 +28,76 @@ services:
     environment:
       - CORE_API_URL=http://core:8000/api
       - REDIS_URL=redis://redis:6379/1
-      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
-      - YOOKASSA_SHOP_ID=${YOOKASSA_SHOP_ID}
-      - YOOKASSA_SECRET_KEY=${YOOKASSA_SECRET_KEY}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+      - YOOKASSA_SHOP_ID=${YOOKASSA_SHOP_ID:-}
+      - YOOKASSA_SECRET_KEY=${YOOKASSA_SECRET_KEY:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - BOT_HTTP_PORT=8001
+    ports:
+      - "8001:8001"
     depends_on:
       - core
       - redis
     networks:
       - groupbuy-network
 
-  # Telegram adapter
+  # Telegram adapter (optional — only used when TELEGRAM_TOKEN is set)
   telegram-adapter:
     build: ./adapters/telegram
     command: python adapter.py
     environment:
       - BOT_SERVICE_URL=http://bot:8001
-      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+    depends_on:
+      - bot
+    networks:
+      - groupbuy-network
+    profiles:
+      - telegram
+
+  # Mattermost adapter
+  mattermost-adapter:
+    build: ./adapters/mattermost
+    command: python adapter.py
+    environment:
+      - BOT_SERVICE_URL=http://bot:8001
+      - MATTERMOST_URL=${MATTERMOST_URL:-http://mattermost:8065}
+      - MATTERMOST_BOT_TOKEN=${MATTERMOST_BOT_TOKEN:-}
+      - MATTERMOST_TEAM_ID=${MATTERMOST_TEAM_ID:-}
+      - MATTERMOST_CHANNEL_ID=${MATTERMOST_CHANNEL_ID:-}
+      - MATTERMOST_WEBHOOK_SECRET=${MATTERMOST_WEBHOOK_SECRET:-}
+      - MATTERMOST_ADAPTER_PORT=8002
+    ports:
+      - "8002:8002"
     depends_on:
       - bot
     networks:
       - groupbuy-network
 
-  # React frontend
+  # React frontend (personal cabinet + chat)
   frontend-react:
     build: ./frontend-react
     ports:
       - "3000:80"
     depends_on:
       - core
+    networks:
+      - groupbuy-network
+
+  # WebSocket chat server
+  websocket-server:
+    build: ./infrastructure/websocket
+    command: python chat_server.py
+    environment:
+      - REDIS_URL=redis://redis:6379/2
+      - CORE_API_URL=http://core:8000/api
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - PORT=8765
+    ports:
+      - "8765:8765"
+    depends_on:
+      - core
+      - redis
     networks:
       - groupbuy-network
 

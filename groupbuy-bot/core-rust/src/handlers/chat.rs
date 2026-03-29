@@ -82,6 +82,40 @@ pub async fn create_message(
     }
 }
 
+/// GET /api/chat/messages/unread_count/?user_id=...&procurement_id=...
+pub async fn get_unread_count(
+    pool: web::Data<PgPool>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> HttpResponse {
+    let user_id: Option<i32> = query.get("user_id").and_then(|v| v.parse().ok());
+    let procurement_id: Option<i32> = query.get("procurement_id").and_then(|v| v.parse().ok());
+
+    match (user_id, procurement_id) {
+        (Some(uid), Some(pid)) => {
+            // Count messages after user's last read
+            let count: i64 = sqlx::query_scalar(
+                r#"SELECT COUNT(*) FROM chat_messages cm
+                   WHERE cm.procurement_id = $1
+                   AND cm.is_deleted = false
+                   AND cm.user_id != $2
+                   AND cm.created_at > COALESCE(
+                       (SELECT last_read_at FROM message_reads WHERE user_id = $2 AND procurement_id = $1),
+                       '1970-01-01'::timestamptz
+                   )"#,
+            )
+            .bind(pid)
+            .bind(uid)
+            .fetch_one(pool.get_ref())
+            .await
+            .unwrap_or(0);
+
+            HttpResponse::Ok().json(serde_json::json!({"unread_count": count}))
+        }
+        _ => HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "user_id and procurement_id are required"})),
+    }
+}
+
 /// GET /api/chat/notifications/?user=...
 pub async fn list_notifications(
     pool: web::Data<PgPool>,

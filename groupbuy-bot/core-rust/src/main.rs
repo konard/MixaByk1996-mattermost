@@ -83,12 +83,15 @@ async fn main() -> std::io::Result<()> {
             .route("/api/procurements/", web::get().to(handlers::procurements::list_procurements))
             .route("/api/procurements/", web::post().to(handlers::procurements::create_procurement))
             .route("/api/procurements/categories/", web::get().to(handlers::procurements::list_categories))
+            .route("/api/procurements/user/{user_id}/", web::get().to(handlers::procurements::get_user_procurements))
             .route("/api/procurements/{id}/", web::get().to(handlers::procurements::get_procurement))
             .route("/api/procurements/{id}/join/", web::post().to(handlers::procurements::join_procurement))
             .route("/api/procurements/{id}/leave/", web::post().to(handlers::procurements::leave_procurement))
+            .route("/api/procurements/{id}/check_access/", web::post().to(handlers::procurements::check_procurement_access))
             // Chat endpoints
             .route("/api/chat/messages/", web::get().to(handlers::chat::list_messages))
             .route("/api/chat/messages/", web::post().to(handlers::chat::create_message))
+            .route("/api/chat/messages/unread_count/", web::get().to(handlers::chat::get_unread_count))
             .route("/api/chat/notifications/", web::get().to(handlers::chat::list_notifications))
             // Payment endpoints
             .route("/api/payments/", web::post().to(handlers::payments::create_payment))
