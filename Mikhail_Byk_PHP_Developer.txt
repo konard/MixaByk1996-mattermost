@@ -1,0 +1,100 @@
+Mikhail Byk
+PHP Developer
+
+Location: Minsk, Belarus | Citizenship: Belarus, Russia (work permit)
+Willing to relocate: Russia | Open to business travel
+Phone: +375 (44) 737-21-11
+Email: bykmikhail@gmail.com (preferred)
+Telegram: @mbyk96
+Date of birth: November 21, 1996 (age 29)
+
+=======================================================================
+KEY SKILLS
+=======================================================================
+PHP · Laravel · REST API · MySQL · PostgreSQL · Vue.js · JavaScript ·
+Redis · Docker · Git · Nginx · Node.js / Nest.js · RabbitMQ · Swagger
+
+=======================================================================
+DESIRED POSITION
+=======================================================================
+PHP Developer | Full-time | Remote
+Specialization: Backend Developer / Software Developer
+
+=======================================================================
+WORK EXPERIENCE
+=======================================================================
+
+PHP Developer
+ST Digital Platform — IT / System Integration / Internet
+February 2024 – September 2025 (1 year 8 months)
+
+- Delivered 100% of planned backend features on schedule, including a notification system and user management module (PHP, Laravel).
+- Reduced page load time by optimizing SQL queries and integrating Redis caching, improving overall application performance.
+- Designed and documented scalable RESTful APIs with JWT / refresh-access authentication, cutting integration time for frontend teams.
+- Improved code quality and maintainability through targeted refactoring aligned with SOLID principles and team best practices.
+Technologies: PHP, Laravel, MySQL, PostgreSQL, Redis, Git, Composer, Postman, Docker
+
+----------------------------------------------------------------------
+
+Middle PHP Full-Stack Developer
+Mapsoft
+September 2021 – February 2024 (2 years 6 months)
+
+- Built and maintained a healthcare web application serving medical data management, reducing manual processing steps for clinical staff.
+- Designed a normalized MySQL database schema covering patients, medical records, and users, improving query performance across key modules.
+- Developed RESTful APIs for mobile and third-party service integration, expanding the product's reach and feature set (Laravel, Yii2).
+- Led regular code reviews, raising code quality standards and accelerating onboarding for 2+ new team members.
+- Maintained and enhanced a CRM system (PHP / Laravel), delivering new features and external service integrations per business requirements.
+Technologies: PHP, Laravel, Yii2, Eloquent ORM, MySQL, Redis, Vue.js, Vuetify, Nuxt.js, Axios, JavaScript, HTML
+
+----------------------------------------------------------------------
+
+PHP Developer
+BELAZ JSC (www.belaz.by) — State-owned enterprise
+July 2019 – September 2021 (2 years 3 months)
+
+- Developed and deployed new features for the corporate website, covering both backend logic and frontend interface (PHP / Laravel, Vue.js).
+- Built and maintained REST APIs enabling seamless interaction between application components and third-party integrations.
+- Conducted code reviews to ensure code quality and adherence to internal coding standards.
+Technologies: PHP, Laravel, MySQL, Vue.js, Vuetify, Nuxt.js, Axios, JavaScript, HTML, Nginx
+
+----------------------------------------------------------------------
+
+PHP Developer (Freelance)
+Self-employed / Private Practice
+July 2017 – July 2019 (2 years 1 month)
+
+- Designed and built MySQL / PostgreSQL databases and REST APIs for mobile and web clients (Laravel, Yii2, Symfony).
+- Delivered full-stack web applications end-to-end: backend (PHP, Laravel, Yii2, Symfony, Redis) and frontend (Vue.js, Nuxt.js, AngularJS, Axios).
+- Developed native PHP applications and RESTful web services for diverse client projects.
+
+=======================================================================
+EDUCATION
+=======================================================================
+
+Bachelor's Degree — Information Systems and Technologies
+Baranovichi State University, Baranovichi
+Engineering Faculty | Graduated: 2019
+
+=======================================================================
+LANGUAGES
+=======================================================================
+Russian — Native
+English — B1 (Intermediate)
+German — A2 (Elementary)
+
+=======================================================================
+ADDITIONAL INFORMATION
+=======================================================================
+8+ years of hands-on PHP development with focus on backend architecture,
+API design, and web application performance. Deep practical knowledge of
+PSR coding standards. Strong multitasking ability and fast adaptation to
+new requirements. Experience across healthcare, corporate, and CRM domains.
+
+Additional tools: PHPStorm, VS Code, PhpMyAdmin, OpenServer, Laravel Livewire,
+Swagger, WebSocket, DDD, CI/CD, JSON API, MongoDB, Linux
+
+=======================================================================
+RECOMMENDED FILE NAME
+=======================================================================
+Mikhail_Byk_PHP_Developer_2026.txt
