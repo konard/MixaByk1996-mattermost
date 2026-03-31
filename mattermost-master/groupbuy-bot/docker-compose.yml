@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  # Core API (Rust backend)
+  core:
+    build: ./core-rust
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/groupbuy
+      - REDIS_URL=redis://redis:6379/0
+      - PORT=8000
+      - RUST_LOG=info,groupbuy_api=debug
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks:
+      - groupbuy-network
+
+  # Bot service (command handlers + HTTP endpoint for adapters)
+  bot:
+    build: ./bot
+    command: python main.py
+    volumes:
+      - ./bot:/app
+    environment:
+      - CORE_API_URL=http://core:8000/api
+      - REDIS_URL=redis://redis:6379/1
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+      - YOOKASSA_SHOP_ID=${YOOKASSA_SHOP_ID:-}
+      - YOOKASSA_SECRET_KEY=${YOOKASSA_SECRET_KEY:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - BOT_HTTP_PORT=8001
+    ports:
+      - "8001:8001"
+    depends_on:
+      - core
+      - redis
+    networks:
+      - groupbuy-network
+
+  # Telegram adapter (optional — only used when TELEGRAM_TOKEN is set)
+  telegram-adapter:
+    build: ./adapters/telegram
+    command: python adapter.py
+    environment:
+      - BOT_SERVICE_URL=http://bot:8001
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+    depends_on:
+      - bot
+    networks:
+      - groupbuy-network
+    profiles:
+      - telegram
+
+  # Mattermost adapter
+  mattermost-adapter:
+    build: ./adapters/mattermost
+    command: python adapter.py
+    environment:
+      - BOT_SERVICE_URL=http://bot:8001
+      - MATTERMOST_URL=${MATTERMOST_URL:-http://mattermost:8065}
+      - MATTERMOST_BOT_TOKEN=${MATTERMOST_BOT_TOKEN:-}
+      - MATTERMOST_TEAM_ID=${MATTERMOST_TEAM_ID:-}
+      - MATTERMOST_CHANNEL_ID=${MATTERMOST_CHANNEL_ID:-}
+      - MATTERMOST_WEBHOOK_SECRET=${MATTERMOST_WEBHOOK_SECRET:-}
+      - MATTERMOST_ADAPTER_PORT=8002
+    ports:
+      - "8002:8002"
+    depends_on:
+      - bot
+    networks:
+      - groupbuy-network
+
+  # React frontend (personal cabinet + chat)
+  frontend-react:
+    build: ./frontend-react
+    ports:
+      - "3000:80"
+    depends_on:
+      - core
+    networks:
+      - groupbuy-network
+
+  # WebSocket chat server
+  websocket-server:
+    build: ./infrastructure/websocket
+    command: python chat_server.py
+    environment:
+      - REDIS_URL=redis://redis:6379/2
+      - CORE_API_URL=http://core:8000/api
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - PORT=8765
+    ports:
+      - "8765:8765"
+    depends_on:
+      - core
+      - redis
+    networks:
+      - groupbuy-network
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=groupbuy
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - groupbuy-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for cache and queues
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - groupbuy-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  groupbuy-network:
+    driver: bridge

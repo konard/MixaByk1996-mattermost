@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="GroupBuy - Сервис организации совместных закупок">
+    <meta name="theme-color" content="#2481cc">
+
+    <title>GroupBuy - Совместные закупки</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/telegram-style.css">
+
+    <!-- Configuration -->
+    <script>
+        window.API_URL = '{{ api_url | default: "/api" }}';
+        window.WS_URL = '{{ ws_url | default: "ws://" + request.host + "/ws" }}';
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar (Chat List) -->
+        <aside class="sidebar">
+            <header class="header">
+                <button class="btn btn-icon menu-toggle" aria-label="Menu">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+                <h1 class="header-title">GroupBuy</h1>
+                <button class="btn btn-icon theme-toggle" aria-label="Toggle theme">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                </button>
+            </header>
+
+            <div class="search-bar">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" class="search-input" placeholder="Поиск...">
+            </div>
+
+            <!-- Tabs for different views -->
+            <div class="tabs">
+                <button class="tab active" data-tab="chats">Чаты</button>
+                <button class="tab" data-tab="cabinet">Кабинет</button>
+            </div>
+
+            <!-- Chat List -->
+            <div class="chat-list" id="chat-list-tab">
+                <!-- Chat items will be rendered here -->
+                <div class="p-lg text-center text-muted">
+                    <p>Загрузка...</p>
+                </div>
+            </div>
+
+            <!-- Personal Cabinet (hidden by default) -->
+            <div class="cabinet hidden" id="cabinet-tab">
+                <!-- Cabinet content will be rendered here -->
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Procurement Slider -->
+            <section class="procurement-slider">
+                <h2 class="slider-title">Активные закупки</h2>
+                <div class="slider-container">
+                    <!-- Procurement cards will be rendered here -->
+                    <div class="p-md text-muted">Загрузка закупок...</div>
+                </div>
+            </section>
+
+            <!-- Chat Header -->
+            <header class="header" id="chat-header" style="display: none;">
+                <button class="btn btn-icon mobile-back" onclick="UI.closeMobileChat()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                </button>
+                <div class="chat-avatar" id="chat-avatar"></div>
+                <div class="flex-col">
+                    <h2 class="header-title" id="chat-title">Выберите чат</h2>
+                    <p class="header-subtitle" id="chat-subtitle"></p>
+                </div>
+                <button class="btn btn-icon" onclick="UI.openProcurementDetails(AppState.currentChat)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="1"></circle>
+                        <circle cx="12" cy="5" r="1"></circle>
+                        <circle cx="12" cy="19" r="1"></circle>
+                    </svg>
+                </button>
+            </header>
+
+            <!-- Welcome Screen (when no chat selected) -->
+            <div class="welcome-screen flex flex-col items-center justify-center" id="welcome-screen" style="flex: 1;">
+                <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--tg-text-muted);">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <h2 class="mt-lg text-secondary">Добро пожаловать в GroupBuy</h2>
+                <p class="mt-sm text-muted">Выберите закупку или создайте новую</p>
+            </div>
+
+            <!-- Message Area -->
+            <div class="message-area hidden" id="message-area">
+                <!-- Messages will be rendered here -->
+            </div>
+
+            <!-- Message Input -->
+            <div class="message-input-area hidden" id="message-input-area">
+                <button class="btn btn-icon" aria-label="Attach file">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                    </svg>
+                </button>
+                <div class="message-input-container">
+                    <textarea class="message-input" placeholder="Сообщение..." rows="1"></textarea>
+                </div>
+                <button class="send-button" aria-label="Send message">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- Login/Register Modal -->
+    <div class="modal-overlay" id="login-modal-overlay">
+        <div class="modal" id="login-modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Регистрация</h3>
+            </div>
+            <div class="modal-body">
+                <form id="register-form">
+                    <div class="form-group">
+                        <label class="form-label">Имя *</label>
+                        <input type="text" class="form-input" name="first_name" required placeholder="Введите имя">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Фамилия</label>
+                        <input type="text" class="form-input" name="last_name" placeholder="Введите фамилию">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Телефон</label>
+                        <input type="tel" class="form-input" name="phone" placeholder="+7 999 123 4567">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" name="email" placeholder="email@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Роль *</label>
+                        <select class="form-input form-select" name="role" required>
+                            <option value="buyer">Покупатель</option>
+                            <option value="organizer">Организатор</option>
+                            <option value="supplier">Поставщик</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary btn-round" onclick="App.register(Object.fromEntries(new FormData(document.getElementById('register-form'))))">
+                    Зарегистрироваться
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Procurement Details Modal -->
+    <div class="modal-overlay" id="procurement-modal-overlay">
+        <div class="modal" id="procurement-modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Закупка</h3>
+                <button class="modal-close" onclick="UI.closeModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Content will be rendered dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-round" onclick="UI.closeModal()">Закрыть</button>
+                <button class="btn btn-primary btn-round" onclick="UI.joinProcurement()">Участвовать</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Procurement Modal -->
+    <div class="modal-overlay" id="create-procurement-modal-overlay">
+        <div class="modal" id="create-procurement-modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Создать закупку</h3>
+                <button class="modal-close" onclick="UI.closeModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="create-procurement-form">
+                    <div class="form-group">
+                        <label class="form-label">Название товара *</label>
+                        <input type="text" class="form-input" name="title" required placeholder="Например: Мед натуральный">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Описание *</label>
+                        <textarea class="form-input form-textarea" name="description" required placeholder="Подробное описание закупки..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Категория</label>
+                        <select class="form-input form-select" name="category" id="category-select">
+                            <option value="">Выберите категорию</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Город получения *</label>
+                        <input type="text" class="form-input" name="city" required placeholder="Москва">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Целевая сумма (руб.) *</label>
+                        <input type="number" class="form-input" name="target_amount" required min="1000" placeholder="10000">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Единица измерения</label>
+                        <input type="text" class="form-input" name="unit" placeholder="кг, шт, л">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Дедлайн *</label>
+                        <input type="datetime-local" class="form-input" name="deadline" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-round" onclick="UI.closeModal()">Отмена</button>
+                <button class="btn btn-primary btn-round" onclick="UI.createProcurement()">Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deposit Modal -->
+    <div class="modal-overlay" id="deposit-modal-overlay">
+        <div class="modal" id="deposit-modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Пополнение баланса</h3>
+                <button class="modal-close" onclick="UI.closeModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="deposit-form">
+                    <div class="form-group">
+                        <label class="form-label">Сумма (руб.) *</label>
+                        <input type="number" class="form-input" name="amount" required min="100" placeholder="1000">
+                    </div>
+                    <p class="text-secondary text-sm mt-md">
+                        Минимальная сумма пополнения: 100 руб.
+                    </p>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-round" onclick="UI.closeModal()">Отмена</button>
+                <button class="btn btn-primary btn-round" onclick="UI.processDeposit()">Пополнить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="/static/js/app.js"></script>
+
+    <!-- Tab switching logic -->
+    <script>
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Update active tab
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                // Show corresponding content
+                const tabName = tab.dataset.tab;
+                if (tabName === 'chats') {
+                    document.getElementById('chat-list-tab').classList.remove('hidden');
+                    document.getElementById('cabinet-tab').classList.add('hidden');
+                } else {
+                    document.getElementById('chat-list-tab').classList.add('hidden');
+                    document.getElementById('cabinet-tab').classList.remove('hidden');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

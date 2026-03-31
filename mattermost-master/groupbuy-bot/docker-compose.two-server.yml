@@ -1,0 +1,213 @@
+# Docker Compose configuration for Two-Server Deployment
+# Server 1: Chat service (WebSocket real-time messaging)
+# Server 2: Bot service with business logic and data (Rust backend)
+#
+# Usage:
+# On Server 1 (Chat): docker-compose -f docker-compose.two-server.yml up websocket-server redis-chat nginx-chat
+# On Server 2 (API):  docker-compose -f docker-compose.two-server.yml up core bot telegram-adapter postgres redis-api nginx-api
+
+version: '3.8'
+
+services:
+  # ============================================
+  # SERVER 1: Chat Services
+  # ============================================
+
+  # WebSocket server for real-time chat (Python - to be migrated to Rust)
+  websocket-server:
+    build: ./infrastructure/websocket
+    container_name: groupbuy-chat-server
+    command: python chat_server.py
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis-chat:6379/0
+      - CORE_API_URL=${CORE_API_URL:-http://core:8000/api}
+      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8765:8765"
+    depends_on:
+      redis-chat:
+        condition: service_healthy
+    networks:
+      - chat-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for chat message caching and pub/sub
+  redis-chat:
+    image: redis:7-alpine
+    container_name: groupbuy-redis-chat
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    volumes:
+      - redis_chat_data:/data
+    ports:
+      - "6380:6379"
+    networks:
+      - chat-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nginx for chat server (SSL termination, load balancing)
+  nginx-chat:
+    image: nginx:alpine
+    container_name: groupbuy-nginx-chat
+    restart: unless-stopped
+    volumes:
+      - ./infrastructure/nginx/nginx-chat.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/nginx/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - websocket-server
+    networks:
+      - chat-network
+
+  # ============================================
+  # SERVER 2: API and Bot Services (Rust Backend)
+  # ============================================
+
+  # Core Rust API (business logic and data)
+  core:
+    build: ./core-rust
+    container_name: groupbuy-core-api
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@postgres:5432/${DB_NAME:-groupbuy}
+      - PORT=8000
+      - RUST_LOG=${RUST_LOG:-info,groupbuy_api=debug}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-api:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/users/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Telegram Bot service
+  bot:
+    build: ./bot
+    container_name: groupbuy-bot
+    command: python main.py
+    restart: unless-stopped
+    volumes:
+      - ./bot:/app
+    environment:
+      - CORE_API_URL=http://core:8000/api
+      - REDIS_URL=redis://redis-api:6379/1
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - YOOKASSA_SHOP_ID=${YOOKASSA_SHOP_ID}
+      - YOOKASSA_SECRET_KEY=${YOOKASSA_SECRET_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      - core
+      - redis-api
+    networks:
+      - api-network
+
+  # Telegram adapter
+  telegram-adapter:
+    build: ./adapters/telegram
+    container_name: groupbuy-telegram-adapter
+    command: python adapter.py
+    restart: unless-stopped
+    environment:
+      - BOT_SERVICE_URL=http://bot:8001
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+    depends_on:
+      - bot
+    networks:
+      - api-network
+
+  # React frontend
+  frontend-react:
+    build: ./frontend-react
+    container_name: groupbuy-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - core
+    networks:
+      - api-network
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: groupbuy-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${DB_NAME:-groupbuy}
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for API caching and session storage
+  redis-api:
+    image: redis:7-alpine
+    container_name: groupbuy-redis-api
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    volumes:
+      - redis_api_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nginx for API server (reverse proxy)
+  nginx-api:
+    image: nginx:alpine
+    container_name: groupbuy-nginx-api
+    restart: unless-stopped
+    volumes:
+      - ./infrastructure/nginx/nginx-api.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/nginx/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - core
+    networks:
+      - api-network
+
+volumes:
+  postgres_data:
+  redis_api_data:
+  redis_chat_data:
+
+networks:
+  api-network:
+    driver: bridge
+  chat-network:
+    driver: bridge

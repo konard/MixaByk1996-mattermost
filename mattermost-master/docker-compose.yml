@@ -1,0 +1,274 @@
+# Docker Compose — Mattermost + GroupBuy Bot (single-server deployment)
+#
+# Runs the self-hosted Mattermost collaboration platform together with the
+# GroupBuy Bot on a single server using Docker Compose.
+#
+# Usage:
+#   cp .env.example .env && nano .env    # fill in all variables
+#   docker-compose up -d
+#
+# First-time setup:
+#   1. Start Mattermost first to complete initial web UI setup:
+#      docker-compose up -d mattermost-postgres mattermost
+#   2. Open http://localhost:8065, create admin account and team
+#   3. Create a Bot Account (System Console > Integrations > Bot Accounts)
+#   4. Create an Outgoing Webhook pointing to http://mattermost-adapter:8002/webhook
+#   5. Fill MATTERMOST_BOT_TOKEN, MATTERMOST_TEAM_ID, MATTERMOST_WEBHOOK_SECRET in .env
+#   6. Start all services: docker-compose up -d
+#
+# See groupbuy-bot/docs/mattermost-deployment.md for the full step-by-step guide.
+#
+# Ports exposed on host:
+#   8065  — Mattermost (users access this)
+#   8000  — GroupBuy API
+#   8001  — GroupBuy Bot HTTP
+#   8002  — Mattermost Adapter (webhook receiver)
+#   3000  — GroupBuy React Frontend
+#   8765  — GroupBuy WebSocket Chat
+
+version: '3.8'
+
+services:
+
+  # ============================================================
+  # GroupBuy Application Services
+  # ============================================================
+
+  # Core API (Rust backend)
+  core:
+    build: ./groupbuy-bot/core-rust
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-password}@postgres:5432/groupbuy
+      - REDIS_URL=redis://redis:6379/0
+      - PORT=8000
+      - RUST_LOG=${RUST_LOG:-info,groupbuy_api=debug}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks:
+      - groupbuy-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/users/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Bot service (command handlers + HTTP endpoint for adapters)
+  bot:
+    build: ./groupbuy-bot/bot
+    command: python main.py
+    restart: unless-stopped
+    volumes:
+      - ./groupbuy-bot/bot:/app
+    environment:
+      - CORE_API_URL=http://core:8000/api
+      - REDIS_URL=redis://redis:6379/1
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+      - YOOKASSA_SHOP_ID=${YOOKASSA_SHOP_ID:-}
+      - YOOKASSA_SECRET_KEY=${YOOKASSA_SECRET_KEY:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - BOT_HTTP_PORT=8001
+    ports:
+      - "8001:8001"
+    depends_on:
+      - core
+      - redis
+    networks:
+      - groupbuy-network
+
+  # Mattermost adapter — bridges Mattermost webhooks to the GroupBuy bot service
+  # Sits on both networks: receives from Mattermost, forwards to bot
+  mattermost-adapter:
+    build: ./groupbuy-bot/adapters/mattermost
+    command: python adapter.py
+    restart: unless-stopped
+    environment:
+      - BOT_SERVICE_URL=http://bot:8001
+      - MATTERMOST_URL=http://mattermost:8065
+      - MATTERMOST_BOT_TOKEN=${MATTERMOST_BOT_TOKEN:-}
+      - MATTERMOST_TEAM_ID=${MATTERMOST_TEAM_ID:-}
+      - MATTERMOST_CHANNEL_ID=${MATTERMOST_CHANNEL_ID:-}
+      - MATTERMOST_WEBHOOK_SECRET=${MATTERMOST_WEBHOOK_SECRET:-}
+      - MATTERMOST_ADAPTER_PORT=8002
+    ports:
+      - "8002:8002"
+    depends_on:
+      - bot
+      - mattermost
+    networks:
+      - groupbuy-network
+      - mattermost-network
+
+  # Telegram adapter (optional — only started with --profile telegram)
+  telegram-adapter:
+    build: ./groupbuy-bot/adapters/telegram
+    command: python adapter.py
+    restart: unless-stopped
+    environment:
+      - BOT_SERVICE_URL=http://bot:8001
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+    depends_on:
+      - bot
+    networks:
+      - groupbuy-network
+    profiles:
+      - telegram
+
+  # React frontend (personal cabinet + chat)
+  frontend-react:
+    build: ./groupbuy-bot/frontend-react
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - core
+    networks:
+      - groupbuy-network
+
+  # WebSocket chat server
+  websocket-server:
+    build: ./groupbuy-bot/infrastructure/websocket
+    command: python chat_server.py
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379/2
+      - CORE_API_URL=http://core:8000/api
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - PORT=8765
+    ports:
+      - "8765:8765"
+    depends_on:
+      - core
+      - redis
+    networks:
+      - groupbuy-network
+
+  # GroupBuy PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=groupbuy
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - groupbuy-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for cache and queues
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - groupbuy-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Mattermost Services
+  # ============================================================
+
+  # Dedicated PostgreSQL instance for Mattermost.
+  # Kept separate from GroupBuy's postgres so each service manages
+  # its own schema migrations and can be backed up independently.
+  mattermost-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=mattermost
+      - POSTGRES_USER=mmuser
+      - POSTGRES_PASSWORD=${MM_DB_PASSWORD:-mmpassword}
+    volumes:
+      - mattermost_postgres_data:/var/lib/postgresql/data
+    networks:
+      - mattermost-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mattermost Team Edition server
+  # Docs: https://docs.mattermost.com/install/install-docker.html
+  mattermost:
+    image: mattermost/mattermost-team-edition:9.11
+    restart: unless-stopped
+    depends_on:
+      mattermost-postgres:
+        condition: service_healthy
+    environment:
+      # Database connection
+      - MM_SQLSETTINGS_DRIVERNAME=postgres
+      - MM_SQLSETTINGS_DATASOURCE=postgres://mmuser:${MM_DB_PASSWORD:-mmpassword}@mattermost-postgres:5432/mattermost?sslmode=disable&connect_timeout=10
+      # Public URL — must match the URL users open in their browser.
+      # Local: http://localhost:8065  |  Production: https://mattermost.yourdomain.com
+      - MM_SERVICESETTINGS_SITEURL=${MATTERMOST_SITE_URL:-http://localhost:8065}
+      # File storage
+      - MM_FILESETTINGS_DRIVERNAME=local
+      - MM_FILESETTINGS_DIRECTORY=/mattermost/data/
+      # Full-text search index directory
+      - MM_BLEVESETTINGS_INDEXDIR=/mattermost/bleve-indexes
+      # Required: allow creating Bot Accounts via the API (for GroupBuy bot)
+      - MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION=true
+      # Allow plugin uploads (useful for future integrations)
+      - MM_PLUGINSETTINGS_ENABLEUPLOADS=true
+      # Disable email notifications by default (configure SMTP later if needed)
+      - MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false
+      # Logging
+      - MM_LOGSETTINGS_ENABLECONSOLE=true
+      - MM_LOGSETTINGS_CONSOLELEVEL=INFO
+    volumes:
+      - mattermost_config:/mattermost/config
+      - mattermost_data:/mattermost/data
+      - mattermost_logs:/mattermost/logs
+      - mattermost_plugins:/mattermost/plugins
+      - mattermost_client_plugins:/mattermost/client/plugins
+      - mattermost_bleve_indexes:/mattermost/bleve-indexes
+    ports:
+      - "8065:8065"
+    networks:
+      - mattermost-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8065/api/v4/system/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  # GroupBuy volumes
+  postgres_data:
+  redis_data:
+  # Mattermost volumes
+  mattermost_postgres_data:
+  mattermost_config:
+  mattermost_data:
+  mattermost_logs:
+  mattermost_plugins:
+  mattermost_client_plugins:
+  mattermost_bleve_indexes:
+
+networks:
+  # GroupBuy application network
+  groupbuy-network:
+    driver: bridge
+  # Mattermost internal network (Mattermost + its DB + the adapter bridge)
+  mattermost-network:
+    driver: bridge

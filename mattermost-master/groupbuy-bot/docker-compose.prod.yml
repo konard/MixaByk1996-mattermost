@@ -1,0 +1,165 @@
+version: '3.8'
+
+services:
+  # Core API service
+  core:
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    image: groupbuy/core:latest
+    container_name: groupbuy-core
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      - REDIS_URL=redis://redis:6379/0
+      - DJANGO_SETTINGS_MODULE=config.settings
+      - SECRET_KEY=${DJANGO_SECRET_KEY}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - DEBUG=False
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - groupbuy-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Bot service (multiple instances for scaling)
+  bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    image: groupbuy/bot:latest
+    container_name: groupbuy-bot
+    restart: unless-stopped
+    environment:
+      - CORE_API_URL=http://core:8000/api
+      - REDIS_URL=redis://redis:6379/1
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - YOOKASSA_SHOP_ID=${YOOKASSA_SHOP_ID}
+      - YOOKASSA_SECRET_KEY=${YOOKASSA_SECRET_KEY}
+      - LOG_LEVEL=INFO
+    depends_on:
+      - core
+      - redis
+    networks:
+      - groupbuy-network
+
+  # WebSocket server for chat
+  websocket-server:
+    build:
+      context: ./infrastructure/websocket
+      dockerfile: Dockerfile
+    image: groupbuy/websocket:latest
+    container_name: groupbuy-websocket
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      - REDIS_URL=redis://redis:6379/2
+      - CORE_API_URL=http://core:8000/api
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - redis
+      - core
+    networks:
+      - groupbuy-network
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: groupbuy-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/backup:/backup
+    networks:
+      - groupbuy-network
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: groupbuy-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    volumes:
+      - redis_data:/data
+    networks:
+      - groupbuy-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: groupbuy-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./infrastructure/nginx/ssl:/etc/nginx/ssl
+      - static_volume:/static
+      - media_volume:/media
+    depends_on:
+      - core
+      - websocket-server
+    networks:
+      - groupbuy-network
+
+  # Database migrations
+  migrations:
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    command: python manage.py migrate
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      - SECRET_KEY=${DJANGO_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - groupbuy-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_volume:
+  media_volume:
+
+networks:
+  groupbuy-network:
+    driver: bridge

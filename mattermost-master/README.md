@@ -22,6 +22,7 @@ Table of contents
 =================
 
 - [Install Mattermost](#install-mattermost)
+- [GroupBuy Bot Integration](#groupbuy-bot-integration)
 - [Native mobile and desktop apps](#native-mobile-and-desktop-apps)
 - [Get security bulletins](#get-security-bulletins)
 - [Get involved](#get-involved)
@@ -48,6 +49,63 @@ Other install guides:
 - [Debian Buster](https://docs.mattermost.com/install/install-debian.html)
 - [RHEL 8](https://docs.mattermost.com/install/install-rhel-8.html)
 - [More server install guides](https://docs.mattermost.com/guides/deployment.html)
+
+## GroupBuy Bot Integration
+
+This repository includes the [GroupBuy Bot](groupbuy-bot/) — a group purchasing bot that integrates with Mattermost to let users create and manage joint purchases directly within your Mattermost workspace.
+
+### Quick Start (Docker Compose)
+
+Run Mattermost together with the GroupBuy Bot on a single server:
+
+```bash
+git clone https://github.com/MixaByk1996/mattermost.git
+cd mattermost/mattermost-master
+
+# Configure environment variables
+cp .env.example .env
+nano .env  # fill in passwords and tokens
+
+# Start Mattermost first and complete initial web UI setup
+docker compose up -d mattermost-postgres mattermost
+
+# Open http://localhost:8065, create admin account, team, bot account, and outgoing webhook
+# Then fill in MATTERMOST_BOT_TOKEN, MATTERMOST_TEAM_ID, MATTERMOST_WEBHOOK_SECRET in .env
+
+# Start all services
+docker compose up -d
+```
+
+### Ports
+
+| Port | Service |
+|------|---------|
+| 8065 | Mattermost (main UI) |
+| 8000 | GroupBuy API |
+| 3000 | GroupBuy React Frontend |
+| 8002 | Mattermost Adapter (webhook receiver) |
+| 8765 | GroupBuy WebSocket Chat |
+
+### Full Installation Guide
+
+See [docs/groupbuy-bot-installation.md](docs/groupbuy-bot-installation.md) for the complete step-by-step guide covering:
+- Server requirements
+- First-run Mattermost setup (admin account, team, bot account, outgoing webhook)
+- Environment configuration
+- SSL setup with Nginx + Let's Encrypt
+- Database backups
+- Troubleshooting
+
+### Architecture
+
+```
+groupbuy-network:    core, bot, mattermost-adapter, postgres, redis, frontend, websocket
+mattermost-network:  mattermost, mattermost-postgres, mattermost-adapter (bridge)
+```
+
+The `mattermost-adapter` bridges both networks — it receives webhooks from Mattermost and forwards them to the GroupBuy bot service.
+
+---
 
 ## Native mobile and desktop apps
 
